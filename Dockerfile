@@ -58,7 +58,8 @@ ENV DATABASE_PATH=/data/traffic_bot.db
 ENV SECRET_KEY=change-this-in-production
 ENV PYTHONUNBUFFERED=1
 ENV BROWSER_HEADLESS=true
-ENV CHROME_BIN=/usr/bin/chromium
+# nodriver found chromium at /bin/chromium (symlink from apt install)
+ENV CHROME_BIN=/bin/chromium
 
 EXPOSE 8000
 

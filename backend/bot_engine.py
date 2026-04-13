@@ -259,12 +259,16 @@ async def _launch(campaign: dict, session_id: str):
         config.browser_executable_path = chromium_path
 
     config.add_argument(f"--user-agent={user_agent}")
-    config.add_argument("--disable-dev-shm-usage")
-    config.add_argument("--disable-gpu")
+    # Headless must be explicit — config.headless alone is not enough in Docker
+    config.add_argument("--headless=new")
     config.add_argument("--no-sandbox")
     config.add_argument("--disable-setuid-sandbox")
+    config.add_argument("--disable-gpu")
+    config.add_argument("--disable-dev-shm-usage")
     config.add_argument("--disable-software-rasterizer")
+    config.add_argument("--disable-extensions-except")
     config.add_argument("--window-size=1920,1080")
+    config.add_argument("--remote-debugging-address=127.0.0.1")
 
     proxy = None
     proxy_str = "direct"
