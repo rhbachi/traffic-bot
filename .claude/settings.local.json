@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:8000/api/proxies)",
+      "Bash(curl -x \"http://zHi6z5D4Zj30kbvY:3uG89fcqnQ41HMcr_country-ma@geo.iproyal.com:12321\" -s -o /dev/null -w \"%{http_code} - IP: %{remote_ip}\" --max-time 15 https://httpbin.org/ip)"
+    ]
+  }
+}

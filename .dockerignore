@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+*.egg
+.env
+.venv
+venv/
+
+# Node
+traffic-bot-ui/node_modules/
+traffic-bot-ui/dist/
+traffic-bot-ui/.env.local
+
+# Data
+backend/traffic_bot.db
+*.db
+
+# Misc
+.git/
+.gitignore
+*.md
+frontend/

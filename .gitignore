@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.db
+.env
+.env.local
+traffic-bot-ui/node_modules/
+traffic-bot-ui/dist/
+traffic-bot-ui/.env.local
+frontend/
