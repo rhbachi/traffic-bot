@@ -32,7 +32,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [auth, setAuth] = useState(authStore.getState());
 
-  useEffect(() => authStore.subscribe(() => setAuth({ ...authStore.getState() })), []);
+  useEffect(() => { const unsub = authStore.subscribe(() => setAuth({ ...authStore.getState() })); return () => { unsub(); }; }, []);
 
   if (!auth.token) {
     return <LoginPage onSuccess={() => setAuth({ ...authStore.getState() })} />;

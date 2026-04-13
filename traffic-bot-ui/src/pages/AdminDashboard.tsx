@@ -4,7 +4,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
 import {
-  Users, Activity, Target, Globe, TrendingUp,
+  Users, Activity, Target, TrendingUp,
   TrendingDown, ShieldAlert, ArrowUpRight, Zap
 } from "lucide-react";
 import { authStore } from "../store/auth";
