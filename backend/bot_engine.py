@@ -258,13 +258,12 @@ async def _launch(campaign: dict, session_id: str):
     if chromium_path:
         config.browser_executable_path = chromium_path
 
+    # Only add args NOT managed by Config attributes
+    # (sandbox, headless are set via config.sandbox/config.headless above)
     config.add_argument(f"--user-agent={user_agent}")
-    config.add_argument("--no-sandbox")
-    config.add_argument("--disable-setuid-sandbox")
     config.add_argument("--disable-gpu")
     config.add_argument("--disable-dev-shm-usage")
     config.add_argument("--disable-software-rasterizer")
-    config.add_argument("--disable-extensions-except")
     config.add_argument("--window-size=1920,1080")
     config.add_argument("--remote-debugging-address=127.0.0.1")
 
