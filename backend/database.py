@@ -33,6 +33,7 @@ def init_db():
     c.execute("""
         CREATE TABLE IF NOT EXISTS campaigns (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 0,
             name TEXT NOT NULL,
             status TEXT DEFAULT 'stopped',
             search_engine TEXT DEFAULT 'google',
@@ -51,13 +52,15 @@ def init_db():
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             total_visits INTEGER DEFAULT 0,
             successful_visits INTEGER DEFAULT 0,
-            failed_visits INTEGER DEFAULT 0
+            failed_visits INTEGER DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS proxies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 0,
             address TEXT NOT NULL,
             port INTEGER NOT NULL,
             username TEXT,
@@ -66,7 +69,8 @@ def init_db():
             status TEXT DEFAULT 'active',
             last_used TEXT,
             success_count INTEGER DEFAULT 0,
-            fail_count INTEGER DEFAULT 0
+            fail_count INTEGER DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
 
@@ -86,30 +90,48 @@ def init_db():
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
+            user_id INTEGER NOT NULL DEFAULT 0,
+            key TEXT NOT NULL,
+            value TEXT,
+            PRIMARY KEY (user_id, key),
+            FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
 
-    # Default settings
-    defaults = {
-        "max_concurrent_tasks": "3",
-        "default_user_agent_rotation": "true",
-        "default_headless": "true",
-        "log_retention_days": "30",
-    }
-    for k, v in defaults.items():
-        c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
+    # Migrate existing tables: add user_id column if missing
+    for table in ("campaigns", "proxies"):
+        try:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass  # Column already exists
 
     conn.commit()
     conn.close()
 
 
-# --- Campaigns ---
+# --- Admin (all users) ---
 
-def get_campaigns():
+def get_all_campaigns():
     conn = get_connection()
     rows = conn.execute("SELECT * FROM campaigns ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_all_active_proxies():
+    conn = get_connection()
+    rows = conn.execute("SELECT * FROM proxies WHERE status = 'active'").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# --- Campaigns ---
+
+def get_campaigns(user_id: int):
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT * FROM campaigns WHERE user_id = ? ORDER BY created_at DESC", (user_id,)
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -121,17 +143,17 @@ def get_campaign(campaign_id: int):
     return dict(row) if row else None
 
 
-def create_campaign(data: dict):
+def create_campaign(data: dict, user_id: int):
     conn = get_connection()
     c = conn.cursor()
     keywords = json.dumps(data.get("keywords", []))
     c.execute("""
-        INSERT INTO campaigns (name, search_engine, keywords, target_url, daily_visits,
+        INSERT INTO campaigns (user_id, name, search_engine, keywords, target_url, daily_visits,
             min_time_on_site, max_time_on_site, bounce_rate, use_proxies, device_type,
             country, schedule_enabled, schedule_start, schedule_end)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        data["name"], data.get("search_engine", "google"), keywords,
+        user_id, data["name"], data.get("search_engine", "google"), keywords,
         data.get("target_url", ""), data.get("daily_visits", 100),
         data.get("min_time_on_site", 30), data.get("max_time_on_site", 180),
         data.get("bounce_rate", 30), data.get("use_proxies", 1),
@@ -165,9 +187,9 @@ def update_campaign(campaign_id: int, data: dict):
     return get_campaign(campaign_id)
 
 
-def delete_campaign(campaign_id: int):
+def delete_campaign(campaign_id: int, user_id: int):
     conn = get_connection()
-    conn.execute("DELETE FROM campaigns WHERE id = ?", (campaign_id,))
+    conn.execute("DELETE FROM campaigns WHERE id = ? AND user_id = ?", (campaign_id, user_id))
     conn.commit()
     conn.close()
 
@@ -190,28 +212,30 @@ def update_campaign_stats(campaign_id: int, success: bool):
 
 # --- Proxies ---
 
-def get_proxies():
+def get_proxies(user_id: int):
     conn = get_connection()
-    rows = conn.execute("SELECT * FROM proxies ORDER BY id DESC").fetchall()
+    rows = conn.execute(
+        "SELECT * FROM proxies WHERE user_id = ? ORDER BY id DESC", (user_id,)
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def add_proxy(data: dict):
+def add_proxy(data: dict, user_id: int):
     conn = get_connection()
     c = conn.cursor()
     c.execute("""
-        INSERT INTO proxies (address, port, username, password, type)
-        VALUES (?, ?, ?, ?, ?)
-    """, (data["address"], data["port"], data.get("username"), data.get("password"), data.get("type", "http")))
+        INSERT INTO proxies (user_id, address, port, username, password, type)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (user_id, data["address"], data["port"], data.get("username"), data.get("password"), data.get("type", "http")))
     conn.commit()
     proxy_id = c.lastrowid
     conn.close()
-    row = conn.connect() if False else get_connection().execute("SELECT * FROM proxies WHERE id = ?", (proxy_id,)).fetchone()
+    row = get_connection().execute("SELECT * FROM proxies WHERE id = ?", (proxy_id,)).fetchone()
     return dict(row) if row else None
 
 
-def bulk_add_proxies(proxy_lines: list):
+def bulk_add_proxies(proxy_lines: list, user_id: int):
     conn = get_connection()
     c = conn.cursor()
     added = 0
@@ -223,11 +247,12 @@ def bulk_add_proxies(proxy_lines: list):
             parts = line.split(":")
             if len(parts) == 2:
                 address, port = parts
-                c.execute("INSERT INTO proxies (address, port) VALUES (?, ?)", (address, int(port)))
+                c.execute("INSERT INTO proxies (user_id, address, port) VALUES (?, ?, ?)",
+                          (user_id, address, int(port)))
             elif len(parts) == 4:
                 address, port, username, password = parts
-                c.execute("INSERT INTO proxies (address, port, username, password) VALUES (?, ?, ?, ?)",
-                          (address, int(port), username, password))
+                c.execute("INSERT INTO proxies (user_id, address, port, username, password) VALUES (?, ?, ?, ?, ?)",
+                          (user_id, address, int(port), username, password))
             added += 1
         except Exception:
             continue
@@ -236,16 +261,18 @@ def bulk_add_proxies(proxy_lines: list):
     return added
 
 
-def delete_proxy(proxy_id: int):
+def delete_proxy(proxy_id: int, user_id: int):
     conn = get_connection()
-    conn.execute("DELETE FROM proxies WHERE id = ?", (proxy_id,))
+    conn.execute("DELETE FROM proxies WHERE id = ? AND user_id = ?", (proxy_id, user_id))
     conn.commit()
     conn.close()
 
 
-def get_active_proxies():
+def get_active_proxies(user_id: int):
     conn = get_connection()
-    rows = conn.execute("SELECT * FROM proxies WHERE status = 'active'").fetchall()
+    rows = conn.execute(
+        "SELECT * FROM proxies WHERE user_id = ? AND status = 'active'", (user_id,)
+    ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -277,37 +304,52 @@ def add_log(campaign_id: int, keyword: str, status: str, proxy: str, time_on_sit
     conn.close()
 
 
-def get_logs(campaign_id: int = None, limit: int = 100):
+def get_logs(user_id: int, campaign_id: int = None, limit: int = 100):
     conn = get_connection()
     if campaign_id:
         rows = conn.execute("""
             SELECT l.*, c.name as campaign_name FROM visit_logs l
             LEFT JOIN campaigns c ON l.campaign_id = c.id
-            WHERE l.campaign_id = ? ORDER BY l.created_at DESC LIMIT ?
-        """, (campaign_id, limit)).fetchall()
+            WHERE l.campaign_id = ? AND c.user_id = ?
+            ORDER BY l.created_at DESC LIMIT ?
+        """, (campaign_id, user_id, limit)).fetchall()
     else:
         rows = conn.execute("""
             SELECT l.*, c.name as campaign_name FROM visit_logs l
             LEFT JOIN campaigns c ON l.campaign_id = c.id
+            WHERE c.user_id = ?
             ORDER BY l.created_at DESC LIMIT ?
-        """, (limit,)).fetchall()
+        """, (user_id, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-# --- Settings ---
+# --- Settings (per user) ---
 
-def get_settings():
+_DEFAULT_SETTINGS = {
+    "max_concurrent_tasks": "3",
+    "default_user_agent_rotation": "true",
+    "default_headless": "true",
+    "log_retention_days": "30",
+}
+
+
+def get_settings(user_id: int):
     conn = get_connection()
-    rows = conn.execute("SELECT * FROM settings").fetchall()
+    rows = conn.execute("SELECT key, value FROM settings WHERE user_id = ?", (user_id,)).fetchall()
     conn.close()
-    return {r["key"]: r["value"] for r in rows}
+    result = dict(_DEFAULT_SETTINGS)
+    result.update({r["key"]: r["value"] for r in rows})
+    return result
 
 
-def update_settings(data: dict):
+def update_settings(data: dict, user_id: int):
     conn = get_connection()
     for k, v in data.items():
-        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (k, str(v)))
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (user_id, key, value) VALUES (?, ?, ?)",
+            (user_id, k, str(v))
+        )
     conn.commit()
     conn.close()
 

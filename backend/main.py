@@ -182,7 +182,7 @@ def delete_user(user_id: int, _: dict = Depends(auth.require_admin)):
 @app.get("/api/admin/stats")
 def admin_stats(_: dict = Depends(auth.require_admin)):
     user_counts = database.count_users()
-    campaigns = database.get_campaigns()
+    campaigns = database.get_all_campaigns()
     total_visits = sum(c.get("total_visits", 0) for c in campaigns)
     successful = sum(c.get("successful_visits", 0) for c in campaigns)
     return {
@@ -192,15 +192,15 @@ def admin_stats(_: dict = Depends(auth.require_admin)):
         "total_visits": total_visits,
         "successful_visits": successful,
         "success_rate": round(successful / total_visits * 100, 1) if total_visits else 0,
-        "active_proxies": len(database.get_active_proxies()),
+        "active_proxies": len(database.get_all_active_proxies()),
     }
 
 
 # ─── Campaigns ────────────────────────────────────────────────────────────────
 
 @app.get("/api/campaigns")
-def list_campaigns():
-    campaigns = database.get_campaigns()
+def list_campaigns(current_user: dict = Depends(auth.get_current_user)):
+    campaigns = database.get_campaigns(current_user["id"])
     for c in campaigns:
         c["running"] = bot_engine.is_campaign_running(c["id"])
         if isinstance(c.get("keywords"), str):
@@ -212,14 +212,14 @@ def list_campaigns():
 
 
 @app.post("/api/campaigns")
-def create_campaign(data: CampaignCreate):
-    return database.create_campaign(data.model_dump())
+def create_campaign(data: CampaignCreate, current_user: dict = Depends(auth.get_current_user)):
+    return database.create_campaign(data.model_dump(), current_user["id"])
 
 
 @app.get("/api/campaigns/{campaign_id}")
-def get_campaign(campaign_id: int):
+def get_campaign(campaign_id: int, current_user: dict = Depends(auth.get_current_user)):
     c = database.get_campaign(campaign_id)
-    if not c:
+    if not c or c["user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Campaign not found")
     c["running"] = bot_engine.is_campaign_running(campaign_id)
     if isinstance(c.get("keywords"), str):
@@ -231,25 +231,28 @@ def get_campaign(campaign_id: int):
 
 
 @app.put("/api/campaigns/{campaign_id}")
-def update_campaign(campaign_id: int, data: CampaignUpdate):
+def update_campaign(campaign_id: int, data: CampaignUpdate, current_user: dict = Depends(auth.get_current_user)):
     c = database.get_campaign(campaign_id)
-    if not c:
+    if not c or c["user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Campaign not found")
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     return database.update_campaign(campaign_id, update_data)
 
 
 @app.delete("/api/campaigns/{campaign_id}")
-def delete_campaign(campaign_id: int):
+def delete_campaign(campaign_id: int, current_user: dict = Depends(auth.get_current_user)):
+    c = database.get_campaign(campaign_id)
+    if not c or c["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=404, detail="Campaign not found")
     bot_engine.stop_campaign(campaign_id)
-    database.delete_campaign(campaign_id)
+    database.delete_campaign(campaign_id, current_user["id"])
     return {"ok": True}
 
 
 @app.post("/api/campaigns/{campaign_id}/start")
-async def start_campaign(campaign_id: int, background_tasks: BackgroundTasks):
+async def start_campaign(campaign_id: int, background_tasks: BackgroundTasks, current_user: dict = Depends(auth.get_current_user)):
     c = database.get_campaign(campaign_id)
-    if not c:
+    if not c or c["user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Campaign not found")
     if bot_engine.is_campaign_running(campaign_id):
         return {"status": "already_running"}
@@ -264,7 +267,10 @@ async def start_campaign(campaign_id: int, background_tasks: BackgroundTasks):
 
 
 @app.post("/api/campaigns/{campaign_id}/stop")
-def stop_campaign(campaign_id: int):
+def stop_campaign(campaign_id: int, current_user: dict = Depends(auth.get_current_user)):
+    c = database.get_campaign(campaign_id)
+    if not c or c["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=404, detail="Campaign not found")
     bot_engine.stop_campaign(campaign_id)
     database.update_campaign(campaign_id, {"status": "stopped"})
     return {"status": "stopped"}
@@ -273,45 +279,46 @@ def stop_campaign(campaign_id: int):
 # ─── Proxies ──────────────────────────────────────────────────────────────────
 
 @app.get("/api/proxies")
-def list_proxies():
-    return database.get_proxies()
+def list_proxies(current_user: dict = Depends(auth.get_current_user)):
+    return database.get_proxies(current_user["id"])
 
 
 @app.post("/api/proxies")
-def add_proxy(data: ProxyCreate):
-    return database.add_proxy(data.model_dump())
+def add_proxy(data: ProxyCreate, current_user: dict = Depends(auth.get_current_user)):
+    return database.add_proxy(data.model_dump(), current_user["id"])
 
 
 @app.post("/api/proxies/bulk")
-def bulk_import(data: BulkProxyImport):
+def bulk_import(data: BulkProxyImport, current_user: dict = Depends(auth.get_current_user)):
     lines = data.proxies.strip().splitlines()
-    added = database.bulk_add_proxies(lines)
+    added = database.bulk_add_proxies(lines, current_user["id"])
     return {"added": added}
 
 
 @app.delete("/api/proxies/{proxy_id}")
-def delete_proxy(proxy_id: int):
-    database.delete_proxy(proxy_id)
+def delete_proxy(proxy_id: int, current_user: dict = Depends(auth.get_current_user)):
+    database.delete_proxy(proxy_id, current_user["id"])
     return {"ok": True}
 
 
 # ─── Logs ─────────────────────────────────────────────────────────────────────
 
 @app.get("/api/logs")
-def get_logs(campaign_id: Optional[int] = None, limit: int = 100):
-    return database.get_logs(campaign_id, limit)
+def get_logs(campaign_id: Optional[int] = None, limit: int = 100, current_user: dict = Depends(auth.get_current_user)):
+    return database.get_logs(current_user["id"], campaign_id, limit)
 
 
 # ─── Stats ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
-def get_stats():
-    campaigns = database.get_campaigns()
+def get_stats(current_user: dict = Depends(auth.get_current_user)):
+    uid = current_user["id"]
+    campaigns = database.get_campaigns(uid)
     total_visits = sum(c.get("total_visits", 0) for c in campaigns)
     successful = sum(c.get("successful_visits", 0) for c in campaigns)
     failed = sum(c.get("failed_visits", 0) for c in campaigns)
-    running = len(bot_engine.get_running_campaigns())
-    proxies = database.get_active_proxies()
+    running = sum(1 for c in campaigns if bot_engine.is_campaign_running(c["id"]))
+    proxies = database.get_active_proxies(uid)
 
     return {
         "total_campaigns": len(campaigns),
@@ -327,14 +334,14 @@ def get_stats():
 # ─── Settings ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/settings")
-def get_settings():
-    return database.get_settings()
+def get_settings(current_user: dict = Depends(auth.get_current_user)):
+    return database.get_settings(current_user["id"])
 
 
 @app.put("/api/settings")
-def update_settings(data: SettingsUpdate):
-    database.update_settings(data.data)
-    return database.get_settings()
+def update_settings(data: SettingsUpdate, current_user: dict = Depends(auth.get_current_user)):
+    database.update_settings(data.data, current_user["id"])
+    return database.get_settings(current_user["id"])
 
 
 # ─── Frontend ─────────────────────────────────────────────────────────────────
