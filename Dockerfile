@@ -17,25 +17,11 @@ RUN pnpm build
 FROM python:3.11-slim
 
 # System dependencies for Chromium (used by nodriver)
+# Let apt resolve chromium's own dependencies automatically
 RUN apt-get update && apt-get install -y \
     chromium \
-    chromium-sandbox \
     fonts-liberation \
     fonts-noto-color-emoji \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libgdk-pixbuf2.0-0 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    xdg-utils \
     wget \
     curl \
     && rm -rf /var/lib/apt/lists/*
