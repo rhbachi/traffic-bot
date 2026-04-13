@@ -259,8 +259,6 @@ async def _launch(campaign: dict, session_id: str):
         config.browser_executable_path = chromium_path
 
     config.add_argument(f"--user-agent={user_agent}")
-    # Headless must be explicit — config.headless alone is not enough in Docker
-    config.add_argument("--headless=new")
     config.add_argument("--no-sandbox")
     config.add_argument("--disable-setuid-sandbox")
     config.add_argument("--disable-gpu")

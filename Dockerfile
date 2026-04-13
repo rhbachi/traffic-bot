@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y \
     chromium \
     fonts-liberation \
     fonts-noto-color-emoji \
+    xvfb \
     wget \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -44,11 +45,14 @@ ENV DATABASE_PATH=/data/traffic_bot.db
 ENV SECRET_KEY=change-this-in-production
 ENV PYTHONUNBUFFERED=1
 ENV BROWSER_HEADLESS=true
-# nodriver found chromium at /bin/chromium (symlink from apt install)
 ENV CHROME_BIN=/bin/chromium
+ENV DISPLAY=:99
 
 EXPOSE 8000
 
-# Run from /app/backend so relative imports (database, auth, bot_engine) resolve
+# Script de démarrage : lance Xvfb (virtual display) puis uvicorn
+COPY backend/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
 WORKDIR /app/backend
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/docker-entrypoint.sh"]
