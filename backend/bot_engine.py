@@ -241,12 +241,30 @@ async def _launch(campaign: dict, session_id: str):
     locale_settings = get_locale_settings(campaign.get("country", "US"))
     user_agent = get_random_user_agent(campaign.get("device_type", "desktop"))
 
+    import os
     config = Config()
-    config.headless = False
+    # In Docker/VPS there is no display — must run headless
+    config.headless = os.environ.get("BROWSER_HEADLESS", "true").lower() != "false"
     config.sandbox = False
     config.lang = locale_settings["locale"]
+
+    # Point to system Chromium when running in Docker
+    chromium_path = os.environ.get("CHROME_BIN", "")
+    if not chromium_path:
+        for candidate in ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"]:
+            if os.path.exists(candidate):
+                chromium_path = candidate
+                break
+    if chromium_path:
+        config.browser_executable_path = chromium_path
+
     config.add_argument(f"--user-agent={user_agent}")
     config.add_argument("--disable-dev-shm-usage")
+    config.add_argument("--disable-gpu")
+    config.add_argument("--no-sandbox")
+    config.add_argument("--disable-setuid-sandbox")
+    config.add_argument("--disable-software-rasterizer")
+    config.add_argument("--window-size=1920,1080")
 
     proxy = None
     proxy_str = "direct"
