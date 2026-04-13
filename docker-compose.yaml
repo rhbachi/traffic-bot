@@ -3,8 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     environment:
       - DATABASE_PATH=/data/traffic_bot.db
       - SECRET_KEY=${SECRET_KEY:-change-this-secret-key-in-production}
