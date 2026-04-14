@@ -10,8 +10,8 @@ def _random_session_id() -> str:
 
 
 class ProxyManager:
-    def get_proxy(self, user_id: int) -> Optional[dict]:
-        proxies = get_active_proxies(user_id)
+    def get_proxy(self, user_id: int, country: str = "") -> Optional[dict]:
+        proxies = get_active_proxies(user_id, country)
         if not proxies:
             return None
         return random.choice(proxies)

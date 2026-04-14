@@ -272,7 +272,7 @@ async def _launch(campaign: dict, session_id: str):
     plugin_path = None
 
     if campaign.get("use_proxies"):
-        proxy = proxy_manager.get_proxy(campaign.get("user_id", 0))
+        proxy = proxy_manager.get_proxy(campaign.get("user_id", 0), campaign.get("country", ""))
         if proxy:
             proxy_str = f"{proxy['address']}:{proxy['port']}"
             if proxy.get("username"):

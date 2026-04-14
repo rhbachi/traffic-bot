@@ -87,10 +87,12 @@ class ProxyCreate(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     type: str = "http"
+    country: str = ""
 
 
 class BulkProxyImport(BaseModel):
-    proxies: str  # newline-separated proxy list
+    proxies: str
+    country: str = ""
 
 
 class SettingsUpdate(BaseModel):
@@ -291,7 +293,7 @@ def add_proxy(data: ProxyCreate, current_user: dict = Depends(auth.get_current_u
 @app.post("/api/proxies/bulk")
 def bulk_import(data: BulkProxyImport, current_user: dict = Depends(auth.get_current_user)):
     lines = data.proxies.strip().splitlines()
-    added = database.bulk_add_proxies(lines, current_user["id"])
+    added = database.bulk_add_proxies(lines, current_user["id"], data.country)
     return {"added": added}
 
 

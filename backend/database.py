@@ -66,6 +66,7 @@ def init_db():
             username TEXT,
             password TEXT,
             type TEXT DEFAULT 'http',
+            country TEXT DEFAULT '',
             status TEXT DEFAULT 'active',
             last_used TEXT,
             success_count INTEGER DEFAULT 0,
@@ -98,12 +99,16 @@ def init_db():
         )
     """)
 
-    # Migrate existing tables: add user_id column if missing
+    # Migrate existing tables: add columns if missing
     for table in ("campaigns", "proxies"):
         try:
             c.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER NOT NULL DEFAULT 0")
         except Exception:
-            pass  # Column already exists
+            pass
+    try:
+        c.execute("ALTER TABLE proxies ADD COLUMN country TEXT DEFAULT ''")
+    except Exception:
+        pass
 
     conn.commit()
     conn.close()
@@ -225,9 +230,9 @@ def add_proxy(data: dict, user_id: int):
     conn = get_connection()
     c = conn.cursor()
     c.execute("""
-        INSERT INTO proxies (user_id, address, port, username, password, type)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (user_id, data["address"], data["port"], data.get("username"), data.get("password"), data.get("type", "http")))
+        INSERT INTO proxies (user_id, address, port, username, password, type, country)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, data["address"], data["port"], data.get("username"), data.get("password"), data.get("type", "http"), data.get("country", "")))
     conn.commit()
     proxy_id = c.lastrowid
     conn.close()
@@ -235,7 +240,7 @@ def add_proxy(data: dict, user_id: int):
     return dict(row) if row else None
 
 
-def bulk_add_proxies(proxy_lines: list, user_id: int):
+def bulk_add_proxies(proxy_lines: list, user_id: int, country: str = ""):
     conn = get_connection()
     c = conn.cursor()
     added = 0
@@ -247,12 +252,12 @@ def bulk_add_proxies(proxy_lines: list, user_id: int):
             parts = line.split(":")
             if len(parts) == 2:
                 address, port = parts
-                c.execute("INSERT INTO proxies (user_id, address, port) VALUES (?, ?, ?)",
-                          (user_id, address, int(port)))
+                c.execute("INSERT INTO proxies (user_id, address, port, country) VALUES (?, ?, ?, ?)",
+                          (user_id, address, int(port), country))
             elif len(parts) == 4:
                 address, port, username, password = parts
-                c.execute("INSERT INTO proxies (user_id, address, port, username, password) VALUES (?, ?, ?, ?, ?)",
-                          (user_id, address, int(port), username, password))
+                c.execute("INSERT INTO proxies (user_id, address, port, username, password, country) VALUES (?, ?, ?, ?, ?, ?)",
+                          (user_id, address, int(port), username, password, country))
             added += 1
         except Exception:
             continue
@@ -268,11 +273,23 @@ def delete_proxy(proxy_id: int, user_id: int):
     conn.close()
 
 
-def get_active_proxies(user_id: int):
+def get_active_proxies(user_id: int, country: str = ""):
     conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM proxies WHERE user_id = ? AND status = 'active'", (user_id,)
-    ).fetchall()
+    if country:
+        # Try to find proxies matching the country first
+        rows = conn.execute(
+            "SELECT * FROM proxies WHERE user_id = ? AND status = 'active' AND country = ?",
+            (user_id, country)
+        ).fetchall()
+        # Fallback: if no country-matching proxies, use any active proxy
+        if not rows:
+            rows = conn.execute(
+                "SELECT * FROM proxies WHERE user_id = ? AND status = 'active'", (user_id,)
+            ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM proxies WHERE user_id = ? AND status = 'active'", (user_id,)
+        ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 

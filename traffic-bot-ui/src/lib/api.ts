@@ -38,10 +38,10 @@ export const api = {
   getProxies: () => req<Proxy[]>("/proxies"),
   addProxy: (data: Partial<Proxy>) =>
     req<Proxy>("/proxies", { method: "POST", body: JSON.stringify(data) }),
-  bulkImportProxies: (proxies: string) =>
+  bulkImportProxies: (proxies: string, country = "") =>
     req<{ added: number }>("/proxies/bulk", {
       method: "POST",
-      body: JSON.stringify({ proxies }),
+      body: JSON.stringify({ proxies, country }),
     }),
   deleteProxy: (id: number) =>
     req(`/proxies/${id}`, { method: "DELETE" }),
@@ -97,6 +97,7 @@ export interface Proxy {
   username?: string;
   password?: string;
   type: string;
+  country: string;
   status: string;
   last_used?: string;
   success_count: number;
