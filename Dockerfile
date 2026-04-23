@@ -1,7 +1,8 @@
 # ─── Stage 1: Build frontend ────────────────────────────────────────────────
 FROM node:20-alpine AS frontend-builder
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@latest --activate \
+    && pnpm config set store-dir /tmp/pnpm-store
 
 WORKDIR /build/ui
 
@@ -10,7 +11,8 @@ RUN pnpm install --frozen-lockfile
 
 COPY traffic-bot-ui/ ./
 # No VITE_API_URL → relative /api calls (same origin as backend)
-RUN pnpm build
+RUN pnpm build \
+    && rm -rf /tmp/pnpm-store node_modules
 
 
 # ─── Stage 2: Python backend ─────────────────────────────────────────────────

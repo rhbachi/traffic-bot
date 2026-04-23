@@ -8,20 +8,35 @@ __pycache__/
 dist/
 *.egg
 .env
+.env.*
 .venv
 venv/
 
-# Node
+# Node — largest directories, must exclude
 traffic-bot-ui/node_modules/
 traffic-bot-ui/dist/
 traffic-bot-ui/.env.local
+traffic-bot-ui/.env
 
 # Data
 backend/traffic_bot.db
 *.db
 
-# Misc
+# Git
 .git/
 .gitignore
+
+# Docs
 *.md
+README*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend build output already handled by multi-stage
 frontend/
+
+# Test files
+test_*.py
+*.test.*
