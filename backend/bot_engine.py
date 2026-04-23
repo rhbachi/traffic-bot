@@ -4,8 +4,10 @@ import json
 import logging
 import zipfile
 import os
+import shutil
 import string
 import tempfile
+import glob
 from typing import Optional
 
 import nodriver as uc
@@ -106,10 +108,22 @@ chrome.webRequest.onAuthRequired.addListener(
 def _cleanup_plugin(plugin_path: str):
     try:
         if plugin_path and os.path.exists(plugin_path):
-            os.remove(plugin_path)
-            os.rmdir(os.path.dirname(plugin_path))
+            shutil.rmtree(os.path.dirname(plugin_path), ignore_errors=True)
     except Exception:
         pass
+
+
+def _cleanup_chrome_temps():
+    """Remove leftover Chromium user-data dirs and temp files from /tmp."""
+    for pattern in ["/tmp/uc_*", "/tmp/bot_proxy_*", "/tmp/.org.chromium.*",
+                    "/tmp/chrome_*", "/tmp/.com.google.Chrome*", "/tmp/extension_*"]:
+        for path in glob.glob(pattern):
+            try:
+                shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) else os.remove(path)
+            except Exception:
+                pass
+
+
 
 
 # ─── Human Behavior (nodriver) ────────────────────────────────────────────────
@@ -265,6 +279,9 @@ async def _launch(campaign: dict, session_id: str):
     config.add_argument("--disable-dev-shm-usage")
     config.add_argument("--disable-software-rasterizer")
     config.add_argument("--window-size=1920,1080")
+    config.add_argument("--disk-cache-size=0")
+    config.add_argument("--media-cache-size=0")
+    config.add_argument("--disable-application-cache")
     config.add_argument("--remote-debugging-address=127.0.0.1")
 
     proxy = None
@@ -343,6 +360,7 @@ async def run_visit(campaign: dict) -> bool:
         update_campaign_stats(campaign["id"], False)
     finally:
         _cleanup_plugin(plugin_path)
+        _cleanup_chrome_temps()
 
     return success
 
