@@ -114,9 +114,20 @@ def _cleanup_plugin(plugin_path: str):
 
 
 def _cleanup_chrome_temps():
-    """Remove leftover Chromium user-data dirs and temp files from /tmp."""
-    for pattern in ["/tmp/uc_*", "/tmp/bot_proxy_*", "/tmp/.org.chromium.*",
-                    "/tmp/chrome_*", "/tmp/.com.google.Chrome*", "/tmp/extension_*"]:
+    """Remove leftover Chromium user-data dirs and temp files."""
+    patterns = [
+        "/tmp/uc_*",
+        "/tmp/bot_proxy_*",
+        "/tmp/.org.chromium.*",
+        "/tmp/chrome_*",
+        "/tmp/.com.google.Chrome*",
+        "/tmp/extension_*",
+        "/tmp/nodriver_*",
+        "/root/.config/chromium",
+        "/root/.config/google-chrome",
+        "/root/.cache/chromium",
+    ]
+    for pattern in patterns:
         for path in glob.glob(pattern):
             try:
                 shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) else os.remove(path)

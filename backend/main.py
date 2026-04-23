@@ -27,12 +27,24 @@ logger = logging.getLogger(__name__)
 database.init_db()
 
 
+async def _periodic_cleanup():
+    """Clean Chrome temp dirs every 5 minutes to prevent disk bloat."""
+    while True:
+        await asyncio.sleep(300)
+        bot_engine._cleanup_chrome_temps()
+        logger.info("Periodic Chrome temp cleanup done")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Start background cleanup task
+    cleanup_task = asyncio.create_task(_periodic_cleanup())
     yield
     # Stop all campaigns on shutdown
+    cleanup_task.cancel()
     for cid in bot_engine.get_running_campaigns():
         bot_engine.stop_campaign(cid)
+    bot_engine._cleanup_chrome_temps()
 
 
 app = FastAPI(title="Traffic Bot API", lifespan=lifespan)
