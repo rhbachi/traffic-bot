@@ -15,7 +15,12 @@ import database
 import bot_engine
 import auth
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
+# Silence nodriver and chromium verbose output
+logging.getLogger("nodriver").setLevel(logging.ERROR)
+logging.getLogger("websockets").setLevel(logging.ERROR)
+logging.getLogger("asyncio").setLevel(logging.ERROR)
+logging.getLogger("bot_engine").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Init DB on startup
