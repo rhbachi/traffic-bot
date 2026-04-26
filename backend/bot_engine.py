@@ -298,62 +298,24 @@ async def _launch(campaign: dict, session_id: str):
     proxy = None
     proxy_str = "direct"
     plugin_path = None
-    _proxy_auth = None  # (username, password) if credentials needed
 
     if campaign.get("use_proxies"):
         proxy = proxy_manager.get_proxy(campaign.get("user_id", 0), campaign.get("country", ""))
         if proxy:
             proxy_str = f"{proxy['address']}:{proxy['port']}"
             ptype = "http" if proxy.get("type") not in ("socks5", "socks4") else proxy["type"]
-            config.add_argument(f"--proxy-server={ptype}://{proxy['address']}:{proxy['port']}")
-            # SOCKS proxies resolve DNS locally by default — force DNS through the proxy
-            # to prevent the VPS IP from leaking via DNS queries
-            if ptype in ("socks5", "socks4"):
-                config.add_argument("--proxy-dns")
             if proxy.get("username"):
-                password = proxy.get("password", "")
-                # Sticky session for IPRoyal
-                if proxy.get("address", "").endswith("iproyal.com") and "_session-" not in password:
-                    password = f"{password}_session-{session_id}"
-                _proxy_auth = (proxy["username"], password)
+                # Authenticated proxy: use Chrome extension (handles auth via webRequest API)
+                plugin_path = _create_proxy_extension(proxy, session_id)
+                config.add_extension(plugin_path)
+            else:
+                config.add_argument(f"--proxy-server={ptype}://{proxy['address']}:{proxy['port']}")
+                # Force DNS through SOCKS proxy to prevent VPS DNS leak
+                if ptype in ("socks5", "socks4"):
+                    config.add_argument("--proxy-dns")
 
     browser = await uc.start(config=config)
     tab = browser.main_tab
-
-    # Handle proxy authentication via CDP Fetch interception.
-    # Chrome extensions are silently ignored in headless mode, causing Chrome to
-    # bypass the proxy entirely and connect directly from the VPS.
-    # CDP Fetch auth interception is headless-safe and triggers before any navigation.
-    if _proxy_auth:
-        _u, _p = _proxy_auth
-        try:
-            await tab.send(uc.cdp.fetch.enable(handle_auth_requests=True))
-
-            # Without patterns, fetch.enable intercepts ALL requests (RequestPaused).
-            # We must continue them immediately or Chrome hangs on every resource load.
-            async def _continue_request(event: uc.cdp.fetch.RequestPaused):
-                try:
-                    await tab.send(uc.cdp.fetch.continue_request(request_id=event.request_id))
-                except Exception:
-                    pass
-
-            async def _handle_proxy_auth(event: uc.cdp.fetch.AuthRequired):
-                try:
-                    await tab.send(uc.cdp.fetch.continue_with_auth(
-                        request_id=event.request_id,
-                        auth_challenge_response=uc.cdp.fetch.AuthChallengeResponse(
-                            response="ProvideCredentials",
-                            username=_u,
-                            password=_p,
-                        )
-                    ))
-                except Exception:
-                    pass
-
-            tab.add_handler(uc.cdp.fetch.RequestPaused, _continue_request)
-            tab.add_handler(uc.cdp.fetch.AuthRequired, _handle_proxy_auth)
-        except Exception as e:
-            logger.warning("[BOT] CDP proxy auth setup failed: %s", e)
 
     # Inject timezone via CDP
     try:
