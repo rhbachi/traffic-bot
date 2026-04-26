@@ -329,6 +329,14 @@ async def _launch(campaign: dict, session_id: str):
         try:
             await tab.send(uc.cdp.fetch.enable(handle_auth_requests=True))
 
+            # Without patterns, fetch.enable intercepts ALL requests (RequestPaused).
+            # We must continue them immediately or Chrome hangs on every resource load.
+            async def _continue_request(event: uc.cdp.fetch.RequestPaused):
+                try:
+                    await tab.send(uc.cdp.fetch.continue_request(request_id=event.request_id))
+                except Exception:
+                    pass
+
             async def _handle_proxy_auth(event: uc.cdp.fetch.AuthRequired):
                 try:
                     await tab.send(uc.cdp.fetch.continue_with_auth(
@@ -342,6 +350,7 @@ async def _launch(campaign: dict, session_id: str):
                 except Exception:
                     pass
 
+            tab.add_handler(uc.cdp.fetch.RequestPaused, _continue_request)
             tab.add_handler(uc.cdp.fetch.AuthRequired, _handle_proxy_auth)
         except Exception as e:
             logger.warning("[BOT] CDP proxy auth setup failed: %s", e)
