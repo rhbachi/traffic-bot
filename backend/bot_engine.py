@@ -47,10 +47,69 @@ SEARCH_ENGINES = {
 active_tasks: dict = {}
 
 
-# ─── Proxy Extension ──────────────────────────────────────────────────────────
+# ─── Local Auth Proxy ─────────────────────────────────────────────────────────
 
 def _make_session_id() -> str:
     return "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+
+
+async def _start_auth_proxy(upstream_host: str, upstream_port: int,
+                            username: str, password: str):
+    """
+    Start a local TCP proxy on 127.0.0.1 that injects Proxy-Authorization into
+    every CONNECT/GET request before forwarding to the upstream authenticated proxy.
+    Returns (asyncio.Server, local_port).
+
+    Why: Chrome extensions and CDP Fetch auth are unreliable in headless mode.
+    A local relay proxy handles auth at the TCP level, works with any Chrome version.
+    """
+    import base64
+    auth_header = (
+        b"Proxy-Authorization: Basic "
+        + base64.b64encode(f"{username}:{password}".encode())
+        + b"\r\n"
+    )
+
+    async def _handle(client_r: asyncio.StreamReader, client_w: asyncio.StreamWriter):
+        try:
+            data = await client_r.read(8192)
+            if not data:
+                return
+            # Inject auth header after the first request line (before other headers)
+            idx = data.find(b"\r\n")
+            if idx != -1:
+                data = data[: idx + 2] + auth_header + data[idx + 2 :]
+
+            up_r, up_w = await asyncio.open_connection(upstream_host, upstream_port)
+            up_w.write(data)
+            await up_w.drain()
+
+            async def _pipe(r: asyncio.StreamReader, w: asyncio.StreamWriter):
+                try:
+                    while chunk := await r.read(65536):
+                        w.write(chunk)
+                        await w.drain()
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        w.close()
+                    except Exception:
+                        pass
+
+            await asyncio.gather(_pipe(client_r, up_w), _pipe(up_r, client_w))
+        except Exception:
+            pass
+        finally:
+            try:
+                client_w.close()
+            except Exception:
+                pass
+
+    server = await asyncio.start_server(_handle, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    asyncio.get_event_loop().create_task(server.serve_forever())
+    return server, port
 
 
 def _create_proxy_extension(proxy: dict, session_id: str) -> str:
@@ -298,6 +357,7 @@ async def _launch(campaign: dict, session_id: str):
     proxy = None
     proxy_str = "direct"
     plugin_path = None
+    proxy_server = None
 
     if campaign.get("use_proxies"):
         proxy = proxy_manager.get_proxy(campaign.get("user_id", 0), campaign.get("country", ""))
@@ -305,9 +365,17 @@ async def _launch(campaign: dict, session_id: str):
             proxy_str = f"{proxy['address']}:{proxy['port']}"
             ptype = "http" if proxy.get("type") not in ("socks5", "socks4") else proxy["type"]
             if proxy.get("username"):
-                # Authenticated proxy: use Chrome extension (handles auth via webRequest API)
-                plugin_path = _create_proxy_extension(proxy, session_id)
-                config.add_extension(plugin_path)
+                password = proxy.get("password", "")
+                if proxy.get("address", "").endswith("iproyal.com") and "_session-" not in password:
+                    password = f"{password}_session-{session_id}"
+                # Start a local relay proxy that injects Proxy-Authorization at TCP level.
+                # This is reliable in headless mode unlike Chrome extensions or CDP Fetch.
+                proxy_server, local_port = await _start_auth_proxy(
+                    proxy["address"], proxy["port"], proxy["username"], password
+                )
+                config.add_argument(f"--proxy-server=http://127.0.0.1:{local_port}")
+                logger.info("[BOT] Local auth proxy started on port %d → %s:%d",
+                            local_port, proxy["address"], proxy["port"])
             else:
                 config.add_argument(f"--proxy-server={ptype}://{proxy['address']}:{proxy['port']}")
                 # Force DNS through SOCKS proxy to prevent VPS DNS leak
@@ -325,7 +393,7 @@ async def _launch(campaign: dict, session_id: str):
     except Exception:
         pass
 
-    return browser, tab, proxy, proxy_str, plugin_path
+    return browser, tab, proxy, proxy_str, plugin_path, proxy_server
 
 
 # ─── Visit Logic ──────────────────────────────────────────────────────────────
@@ -342,11 +410,12 @@ async def run_visit(campaign: dict) -> bool:
     proxy = None
     proxy_str = "direct"
     plugin_path = None
+    proxy_server = None
     success = False
     time_on_site = 0
 
     try:
-        browser, tab, proxy, proxy_str, plugin_path = await _launch(campaign, session_id)
+        browser, tab, proxy, proxy_str, plugin_path, proxy_server = await _launch(campaign, session_id)
 
         await _rnd(500, 1500)
 
@@ -374,6 +443,8 @@ async def run_visit(campaign: dict) -> bool:
         add_log(campaign["id"], keyword, "error", proxy_str, 0, campaign["search_engine"])
         update_campaign_stats(campaign["id"], False)
     finally:
+        if proxy_server:
+            proxy_server.close()
         _cleanup_plugin(plugin_path)
         _cleanup_chrome_temps()
 
